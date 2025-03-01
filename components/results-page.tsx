@@ -1,121 +1,294 @@
-"use client"
+"use client";
 
-import { useEffect, useState, useMemo, useRef } from "react"
-import { useRouter } from "next/navigation"
-import useCanvas from "@/hooks/use-canvas"
-import { materialDensities } from "@/lib/constants"
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { materialDensities } from "@/lib/constants";
+// Removed conflicting import
 
 interface ResultsPageProps {
   inputs: {
-    internalDia: number
-    vesselLength: number
-    plateThickness: number
-    plateWidth: number
-    plateLength: number
-    material: string
-    ratePerKg: number
-  }
+    internalDia: number;
+    vesselLength: number;
+    plateThickness: number;
+    plateWidth: number;
+    plateLength: number;
+    material: string;
+    ratePerKg: number;
+  };
 }
 
 interface LayoutData {
-  developedLength: number
-  numPlatesWidth: number
-  plateWidth: number
-  plateLength: number
-  lastPlateWidth: number
-  lastPlateLength: number
+  developedLength: number;
+  numPlates: number;
+  numberOfCut:number;
+  plateWidth: number;
+  plateLength: number;
+  numDevelopedLengthsPerPlate: number;
 }
 
 interface Weights {
-  totalWeight: number
-  totalCost: number
-  usedWeight: number
-  usedCost: number
-  offcutWeight: number
-  offcutCost: number
+  totalWeight: number;
+  totalCost: number;
+  usedWeight: number;
+  usedCost: number;
+  offcutWeight: number;
+  offcutCost: number;
 }
 
-const ResultsPage = ({ inputs }: ResultsPageProps) => {
-  const router = useRouter()
-  const [scale, setScale] = useState(0.05)
-  const [tooltip, setTooltip] = useState({ visible: false, text: "", x: 0, y: 0 })
-  const [weights, setWeights] = useState<Weights | null>(null)
-  const [layoutData, setLayoutData] = useState<LayoutData | null>(null)
-  const [numUsedPlates, setNumUsedPlates] = useState(0)
-  const calculationsPerformed = useRef(false)
+interface Tooltip {
+  visible: boolean;
+  text: string;
+  x: number;
+  y: number;
+}
 
-  const { canvasRef, handleMouseMove, handleMouseDown, handleMouseUp } = useCanvas(
-    layoutData,
-    scale,
-    setTooltip,
-    tooltip,
-  )
+const useCanvas = (
+  layoutData: LayoutData | null,
+  scale: number,
+  setTooltip: React.Dispatch<React.SetStateAction<Tooltip>>,
+  tooltip: Tooltip
+) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [clickPosition, setClickPosition] = useState({ x: 0, y: 0 });
+
+  const drawCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !layoutData) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.translate(offset.x, offset.y);
+    ctx.scale(scale, scale);
+
+    const { developedLength, numPlates, plateWidth, plateLength, numDevelopedLengthsPerPlate,numberOfCut } = layoutData;
+
+let numberOfCutUsed=0;
+console.log("test","number of cut",numberOfCut)
+    for (let i = 0; i < numPlates; i++) {
+      const yOffset = i * (plateWidth + 20);
+
+      // Draw plate outline
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 2 / scale;
+      ctx.strokeRect(100 / scale, yOffset + 50 / scale, plateLength, plateWidth);
+
+      // Draw developed lengths
+      for (let j = 0; j < numDevelopedLengthsPerPlate; j++) {
+        numberOfCutUsed++;
+        if(numberOfCutUsed>numberOfCut){
+          break;
+        }
+        const xOffset = 100 / scale + j * developedLength;
+        ctx.fillStyle = "gray";
+        ctx.fillRect(xOffset, yOffset + 50 / scale, developedLength, plateWidth);
+      }
+
+      // Draw offcut area with mesh pattern
+      const remainingLength = plateLength - numDevelopedLengthsPerPlate * developedLength;
+      if (remainingLength > 0) {
+        const meshSize = 4 / scale;
+        ctx.strokeStyle = "rgb(255, 5, 5)";
+        ctx.lineWidth = 4;
+
+        // Vertical lines
+        for (let x = 100 / scale + numDevelopedLengthsPerPlate * developedLength; x < 100 / scale + plateLength; x += meshSize) {
+          ctx.beginPath();
+          ctx.moveTo(x, yOffset + 50 / scale);
+          ctx.lineTo(x, yOffset + 50 / scale + plateWidth);
+          ctx.stroke();
+        }
+
+        // Horizontal lines
+        for (let y = yOffset + 50 / scale; y < yOffset + 50 / scale + plateWidth; y += meshSize) {
+          ctx.beginPath();
+          ctx.moveTo(100 / scale + numDevelopedLengthsPerPlate * developedLength, y);
+          ctx.lineTo(100 / scale + plateLength, y);
+          ctx.stroke();
+        }
+
+        // Offcut label
+        ctx.fillStyle = "red";
+        ctx.fillText(`Offcut: ${Math.round(remainingLength)} mm`, 100 / scale + (numDevelopedLengthsPerPlate * developedLength + plateLength) / 2 + 20 / scale, yOffset + plateWidth / 2);
+      }
+
+      // Add labels
+      ctx.fillStyle = "black";
+      ctx.font = `bold ${12 / scale}px Arial`;
+
+      // Width label
+      ctx.beginPath();
+      ctx.moveTo(100 / scale, yOffset + plateWidth / 2 + 5 / scale);
+      ctx.lineTo(50 / scale, yOffset + plateWidth / 2 + 5 / scale);
+      ctx.stroke();
+      ctx.fillText(`Width: ${Math.round(plateWidth)} mm`, 50 / scale, yOffset + plateWidth / 2 + 5 / scale);
+
+      // Length label
+      ctx.beginPath();
+      ctx.moveTo(plateLength / 2 + 100 / scale, yOffset - 5 / scale);
+      ctx.lineTo(plateLength / 2 + 100 / scale, yOffset - 20 / scale);
+      ctx.stroke();
+      ctx.fillText(`Length: ${Math.round(plateLength)} mm`, plateLength / 2 + 100 / scale, yOffset - 25 / scale);
+
+      // Developed length label
+      ctx.beginPath();
+      ctx.moveTo(developedLength / 2 + 100 / scale, yOffset + 20 / scale);
+      ctx.lineTo(developedLength / 2 + 100 / scale, yOffset + 35 / scale);
+      ctx.stroke();
+      ctx.fillText(`Developed Length: ${Math.round(developedLength)} mm`, developedLength / 2 + 100 / scale, yOffset + 40 / scale);
+    }
+
+    // Draw tooltip if visible
+    if (tooltip.visible) {
+      ctx.fillStyle = "rgb(255, 0, 0)";
+      ctx.fillRect(tooltip.x / scale, tooltip.y / scale, 100 / scale, 30 / scale);
+      ctx.fillStyle = "white";
+      ctx.fillText(tooltip.text, tooltip.x / scale + 5 / scale, tooltip.y / scale + 20 / scale);
+    }
+
+    ctx.restore();
+  }, [layoutData, scale, tooltip, offset]);
+
+  const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas || !layoutData) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    // Show tooltip when hovering over offcut area
+    const { developedLength, numDevelopedLengthsPerPlate } = layoutData;
+    const offcutX = 100 + (numDevelopedLengthsPerPlate * developedLength) * scale;
+    if (x >= offcutX && x <= offcutX + 150 && y >= 50 && y <= canvas.height) {
+      setTooltip({ visible: true, text: "Offcut Area", x: x + 10, y: y - 20 });
+    } else {
+      setTooltip({ visible: false, text: "", x: 0, y: 0 });
+    }
+
+    // Handle dragging for pan functionality
+    if (isDragging) {
+      setOffset({
+        x: x - clickPosition.x,
+        y: y - clickPosition.y,
+      });
+    }
+  };
+
+  const handleMouseDown = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    setClickPosition({
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    });
+    setIsDragging(true);
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  useEffect(() => {
+    drawCanvas();
+  }, [drawCanvas]);
+
+  return {
+    canvasRef,
+    handleMouseMove,
+    handleMouseDown,
+    handleMouseUp,
+  };
+};
+
+const ResultsPage = ({ inputs }: ResultsPageProps) => {
+  const router = useRouter();
+  const [scale, setScale] = useState(0.05);
+  const [tooltip, setTooltip] = useState({ visible: false, text: "", x: 0, y: 0 });
+  const [weights, setWeights] = useState<Weights | null>(null);
+  const [layoutData, setLayoutData] = useState<LayoutData | null>(null);
+  const [numUsedPlates, setNumUsedPlates] = useState(0);
+  const calculationsPerformed = useRef(false);
+
+  const { canvasRef, handleMouseMove, handleMouseDown, handleMouseUp } = useCanvas(layoutData, scale, setTooltip, tooltip);
 
   const calculations = useMemo(() => {
-    if (!inputs) return null
+    if (!inputs) return null;
 
-    const { internalDia, vesselLength, plateThickness, plateWidth, plateLength, material, ratePerKg } = inputs
+    const { internalDia, vesselLength, plateThickness, plateWidth, plateLength, material, ratePerKg } = inputs;
 
     // Calculate developed length (circumference + allowance)
     const developedLength = Math.round(
-      (internalDia + plateThickness) * Math.PI + (plateThickness <= 35 ? plateThickness : 1.5 * plateThickness),
-    )
+      (internalDia + plateThickness) * Math.PI + (plateThickness <= 35 ? plateThickness : 1.5 * plateThickness)
+    );
+
+    // Calculate number of developed lengths per plate
+    const numDevelopedLengthsPerPlate = Math.floor(plateLength / developedLength);
+    console.log("test","num Developed",plateLength,developedLength,plateLength/developedLength)
+    console.log("test","vessel Length",vesselLength,plateWidth,)
+    const totalDevelopedLengths = Math.ceil(vesselLength / plateWidth) * numDevelopedLengthsPerPlate;
 
     // Calculate number of plates needed
-    const numPlatesWidth = Math.ceil(vesselLength / (plateWidth + 2))
-    const lastPlateWidth = vesselLength - (numPlatesWidth - 1) * (plateWidth + 2)
-    const numPlatesLength = Math.ceil(developedLength / plateLength)
-    const lastPlateLength = developedLength - (numPlatesLength - 1) * plateLength
+    console.log("test","totalDevelopedLength",totalDevelopedLengths,numDevelopedLengthsPerPlate)
+    const numberOfCut=Math.ceil(vesselLength/plateWidth)
+    const numPlatesbottom = Math.floor(plateLength / developedLength);//10000/3873
+    console.log("test","numPlatesbottom",numPlatesbottom)
+    const numPlates = Math.ceil(numberOfCut / numPlatesbottom);
+ 
 
     // Get material density
-    const density = materialDensities[material]
+    const density = materialDensities[material];
 
     // Calculate volumes
-    const totalPlateVolume = numPlatesWidth * plateLength * plateWidth * plateThickness
-    const usedVolume =
-      (numPlatesWidth - 1) * developedLength * plateWidth * plateThickness +
-      lastPlateWidth * developedLength * plateThickness
-    const offcutVolume = totalPlateVolume - usedVolume
+    
+    const totalPlateVolume = numPlates * plateLength * plateWidth * plateThickness;
+    console.log("test","totalPlateVolume",numPlates,plateLength,plateWidth,plateThickness)
+    const usedVolume = numberOfCut *( developedLength * plateWidth * plateThickness);
+    console.log("test","usedVolume",totalDevelopedLengths,developedLength,plateWidth,plateThickness)
+    const offcutVolume = totalPlateVolume - usedVolume;
 
     // Calculate weights
-    const totalWeight = totalPlateVolume * density
-    const usedWeight = usedVolume * density
-    const offcutWeight = offcutVolume * density
+    const totalWeight = totalPlateVolume * density;
+    const usedWeight = usedVolume * density;
+    const offcutWeight = offcutVolume * density;
 
     // Calculate costs
-    const totalCost = totalWeight * ratePerKg
-    const usedCost = usedWeight * ratePerKg
-    const offcutCost = offcutWeight * ratePerKg
-
-    // Calculate total number of plates used
-    const usedPlates = numPlatesWidth * numPlatesLength
+    const totalCost = totalWeight * ratePerKg;
+    const usedCost = usedWeight * ratePerKg;
+    const offcutCost = offcutWeight * ratePerKg;
 
     return {
       weights: { totalWeight, totalCost, usedWeight, usedCost, offcutWeight, offcutCost },
-      layoutData: { developedLength, numPlatesWidth, plateWidth, plateLength, lastPlateWidth, lastPlateLength },
-      numUsedPlates: usedPlates,
-    }
-  }, [inputs])
+      layoutData: { developedLength, numPlates, plateWidth, plateLength, numDevelopedLengthsPerPlate,numberOfCut },
+      numUsedPlates: numPlates,
+    };
+  }, [inputs]);
 
   useEffect(() => {
     if (calculations && !calculationsPerformed.current) {
-      setWeights(calculations.weights)
-      setLayoutData(calculations.layoutData)
-      setNumUsedPlates(calculations.numUsedPlates)
-      calculationsPerformed.current = true
+      setWeights(calculations.weights);
+      setLayoutData(calculations.layoutData);
+      setNumUsedPlates(calculations.numUsedPlates);
+      calculationsPerformed.current = true;
     }
-  }, [calculations])
+  }, [calculations]);
 
   const handleZoomIn = () => {
-    setScale((prevScale) => Math.min(prevScale + 0.01, 0.1))
-  }
+    setScale((prevScale) => Math.min(prevScale + 0.01, 0.1));
+  };
 
   const handleZoomOut = () => {
-    setScale((prevScale) => Math.max(prevScale - 0.01, 0.01))
-  }
+    setScale((prevScale) => Math.max(prevScale - 0.01, 0.01));
+  };
 
   if (!weights || !layoutData) {
-    return <div>Loading...</div>
+    return <div>Loading...</div>;
   }
 
   return (
@@ -188,8 +361,13 @@ const ResultsPage = ({ inputs }: ResultsPageProps) => {
         </div>
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default ResultsPage
+export default ResultsPage;
+
+function customUseCallback(arg0: () => void, arg1: (number | LayoutData | { x: number; y: number; } | null)[]) {
+  throw new Error("Function not implemented.");
+}
+// Removed conflicting local useCallback declaration
 
