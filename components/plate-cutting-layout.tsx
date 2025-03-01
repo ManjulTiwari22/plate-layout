@@ -1,10 +1,8 @@
-"use client"
+"use client";
 
-import type React from "react"
-
-import { useState } from "react"
-import { useRouter } from "next/navigation"
-import { materialDensities } from "@/lib/constants"
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { materialDensities } from "@/lib/constants";
 
 const PlateCuttingLayout = () => {
   const [inputs, setInputs] = useState({
@@ -15,34 +13,52 @@ const PlateCuttingLayout = () => {
     plateLength: "",
     material: "IS 2062 GR.B",
     ratePerKg: "",
-  })
+  });
 
-  const [error, setError] = useState("")
-  const router = useRouter()
+  const [error, setError] = useState("");
+  const router = useRouter();
+
+  // Load inputs from localStorage on mount
+  useEffect(() => {
+    const savedInputs = localStorage.getItem("plateCuttingInputs");
+    console.log("Loaded inputs from localStorage:", savedInputs);
+    if (savedInputs) {
+      setInputs(JSON.parse(savedInputs));
+    }
+  }, []);
+
+  // Save inputs to localStorage whenever they change
+  useEffect(() => {
+    console.log("Saving inputs to localStorage:", inputs);
+    localStorage.setItem("plateCuttingInputs", JSON.stringify(inputs));
+  }, [inputs]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target
-    setInputs({
-      ...inputs,
-      [name]: name === "material" ? value : value === "" ? "" : Number.parseFloat(value) || 0,
-    })
-  }
+    const { name, value } = e.target;
+    setInputs((prevInputs) => {
+      console.log(`Changing ${name} to ${value}`);
+      return {
+        ...prevInputs,
+        [name]: name === "material" ? value : value === "" ? "" : Number.parseFloat(value) || 0,
+      };
+    });
+  };
 
   const generateLayout = () => {
-    const { internalDia, vesselLength, plateThickness, plateWidth, plateLength, material, ratePerKg } = inputs
+    const { internalDia, vesselLength, plateThickness, plateWidth, plateLength, material, ratePerKg } = inputs;
 
     // Check for empty fields
     if (!internalDia || !vesselLength || !plateThickness || !plateWidth || !plateLength || !ratePerKg) {
-      setError("All fields must be filled out.")
-      return
+      setError("All fields must be filled out.");
+      return;
     }
 
-    setError("") // Clear any previous errors
+    setError(""); // Clear any previous errors
 
     // Encode the inputs as URL parameters
-    const encodedInputs = encodeURIComponent(JSON.stringify(inputs))
-    router.push(`/results?inputs=${encodedInputs}`)
-  }
+    const encodedInputs = encodeURIComponent(JSON.stringify(inputs));
+    router.push(`/results?inputs=${encodedInputs}`);
+  };
 
   return (
     <div className="w-full max-w-2xl bg-white shadow-lg rounded-lg p-6">
@@ -159,8 +175,7 @@ const PlateCuttingLayout = () => {
         </div>
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default PlateCuttingLayout
-
+export default PlateCuttingLayout;
